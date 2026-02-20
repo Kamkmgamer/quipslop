@@ -261,7 +261,14 @@ export async function runGame(
   state: GameState,
   rerender: () => void,
 ) {
-  for (let r = 1; r <= runs; r++) {
+  let startRound = 1;
+  if (state.completed.length > 0) {
+    startRound = state.completed[state.completed.length - 1].num + 1;
+  }
+  
+  const endRound = startRound + runs - 1;
+  
+  for (let r = startRound; r <= endRound; r++) {
     while (state.isPaused) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
@@ -270,7 +277,7 @@ export async function runGame(
     const prompter = shuffled[0]!;
     const contA = shuffled[1]!;
     const contB = shuffled[2]!;
-    const voters = shuffled.slice(3);
+    const voters = [prompter, ...shuffled.slice(3)];
     const now = Date.now();
 
     const round: RoundState = {

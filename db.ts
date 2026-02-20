@@ -21,7 +21,7 @@ export function saveRound(round: RoundState) {
 export function getRounds(page: number = 1, limit: number = 10) {
   const offset = (page - 1) * limit;
   const countQuery = db.query("SELECT COUNT(*) as count FROM rounds").get() as { count: number };
-  const rows = db.query("SELECT data FROM rounds ORDER BY id DESC LIMIT $limit OFFSET $offset")
+  const rows = db.query("SELECT data FROM rounds ORDER BY num DESC, id DESC LIMIT $limit OFFSET $offset")
     .all({ $limit: limit, $offset: offset }) as { data: string }[];
   return {
     rounds: rows.map(r => JSON.parse(r.data) as RoundState),
@@ -30,4 +30,9 @@ export function getRounds(page: number = 1, limit: number = 10) {
     limit,
     totalPages: Math.ceil(countQuery.count / limit)
   };
+}
+
+export function getAllRounds() {
+  const rows = db.query("SELECT data FROM rounds ORDER BY num ASC, id ASC").all() as { data: string }[];
+  return rows.map(r => JSON.parse(r.data) as RoundState);
 }

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./frontend.css";
 
-// ── Types (mirrors game.ts) ─────────────────────────────────────────────────
+// ── Types ────────────────────────────────────────────────────────────────────
 
 type Model = { id: string; name: string };
 type TaskInfo = { model: Model; startedAt: number; finishedAt?: number; result?: string; error?: string };
@@ -22,7 +22,7 @@ type RoundState = {
 type GameState = { completed: RoundState[]; active: RoundState | null; scores: Record<string, number>; done: boolean };
 type ServerMessage = { type: "state"; data: GameState; totalRounds: number };
 
-// ── Model Assets & Colors ───────────────────────────────────────────────────
+// ── Model colors & logos ─────────────────────────────────────────────────────
 
 const MODEL_COLORS: Record<string, string> = {
   "Gemini 3.1 Pro": "#4285F4",
@@ -52,69 +52,57 @@ function getLogo(name: string): string | null {
   return null;
 }
 
-// ── Components ──────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function Timer({ startedAt, finishedAt }: { startedAt: number; finishedAt?: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (finishedAt) return;
-    const id = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(id);
-  }, [finishedAt]);
-  const elapsed = ((finishedAt ?? now) - startedAt) / 1000;
-  return <span className="timer">{elapsed.toFixed(1)}s</span>;
+function Dots() {
+  return <span className="dots"><span>.</span><span>.</span><span>.</span></span>;
 }
 
-function ModelName({ model, className = "", showLogo = true }: { model: Model; className?: string, showLogo?: boolean }) {
+function ModelTag({ model, small }: { model: Model; small?: boolean }) {
   const logo = getLogo(model.name);
   const color = getColor(model.name);
   return (
-    <span className={`model-name ${className}`} style={{ color }}>
-      {showLogo && logo && <img src={logo} alt="" className="model-logo" />}
+    <span className={`model-tag ${small ? "model-tag--sm" : ""}`} style={{ color }}>
+      {logo && <img src={logo} alt="" className="model-tag__logo" />}
       {model.name}
     </span>
   );
 }
 
+// ── Prompt ───────────────────────────────────────────────────────────────────
+
 function PromptCard({ round }: { round: RoundState }) {
   if (round.phase === "prompting" && !round.prompt) {
     return (
-      <div className="prompt-card prompt-card--loading">
-        <div className="prompt-card__by">
-          <ModelName model={round.prompter} /> is cooking up a prompt…
+      <div className="prompt">
+        <div className="prompt__by">
+          <ModelTag model={round.prompter} small /> is writing a prompt<Dots />
         </div>
-        <div className="prompt-card__text prompt-card__text--loading">
-          <span className="dots"><span>.</span><span>.</span><span>.</span></span>
-        </div>
+        <div className="prompt__text prompt__text--loading"><Dots /></div>
       </div>
     );
   }
 
   if (round.promptTask.error) {
     return (
-      <div className="prompt-card prompt-card--error">
-        <div className="prompt-card__text" style={{ color: "#ef4444" }}>Prompt generation failed</div>
+      <div className="prompt">
+        <div className="prompt__text prompt__text--error">Prompt generation failed</div>
       </div>
     );
   }
 
   return (
-    <div className="prompt-card">
-      <div className="prompt-card__by">
-        Prompted by <ModelName model={round.prompter} />
-      </div>
-      <div className="prompt-card__text">{round.prompt}</div>
+    <div className="prompt">
+      <div className="prompt__by">Prompted by <ModelTag model={round.prompter} small /></div>
+      <div className="prompt__text">{round.prompt}</div>
     </div>
   );
 }
 
-function ContestantPanel({
-  task,
-  voteCount,
-  totalVotes,
-  isWinner,
-  showVotes,
-  voters,
+// ── Contestant ───────────────────────────────────────────────────────────────
+
+function ContestantCard({
+  task, voteCount, totalVotes, isWinner, showVotes, voters,
 }: {
   task: TaskInfo;
   voteCount: number;
@@ -127,43 +115,45 @@ function ContestantPanel({
   const pct = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
 
   return (
-    <div className={`contestant ${isWinner ? "contestant--winner" : ""}`} style={{ borderColor: color }}>
-      <div className="contestant__header">
-        <div className="contestant__name">
-          <ModelName model={task.model} />
-        </div>
-        {isWinner && <div className="contestant__winner-badge">WINNER</div>}
+    <div
+      className={`contestant ${isWinner ? "contestant--winner" : ""}`}
+      style={{ "--accent": color } as React.CSSProperties}
+    >
+      <div className="contestant__head">
+        <ModelTag model={task.model} />
+        {isWinner && <span className="win-tag">WIN</span>}
       </div>
-      
-      <div className="contestant__answer">
+
+      <div className="contestant__body">
         {!task.finishedAt ? (
-          <span className="contestant__thinking">
-            <span className="dots"><span>.</span><span>.</span><span>.</span></span>
-          </span>
+          <p className="answer answer--loading"><Dots /></p>
         ) : task.error ? (
-          <span className="contestant__error">✗ {task.error}</span>
+          <p className="answer answer--error">{task.error}</p>
         ) : (
-          <span className="contestant__text">&ldquo;{task.result}&rdquo;</span>
+          <p className="answer">&ldquo;{task.result}&rdquo;</p>
         )}
       </div>
 
       {showVotes && (
-        <div className="contestant__votes-container">
-          <div className="contestant__votes">
-            <div className="vote-bar">
-              <div className="vote-bar__fill" style={{ width: `${pct}%`, background: color }} />
-            </div>
-            <div className="vote-bar__label">
-              <span className="vote-bar__count" style={{ color }}>{voteCount}</span>
-              <span className="vote-bar__pct">{pct}%</span>
-            </div>
+        <div className="contestant__foot">
+          <div className="vote-bar">
+            <div className="vote-bar__fill" style={{ width: `${pct}%`, background: color }} />
           </div>
-          <div className="contestant__voters">
-            {voters.map((v, i) => (
-               <div key={i} className="voter-badge">
-                 <ModelName model={v.voter} showLogo={true} />
-               </div>
-            ))}
+          <div className="vote-meta">
+            <span className="vote-meta__count" style={{ color }}>{voteCount}</span>
+            <span className="vote-meta__label">vote{voteCount !== 1 ? "s" : ""}</span>
+            <span className="vote-meta__dots">
+              {voters.map((v, i) => {
+                const logo = getLogo(v.voter.name);
+                return logo ? (
+                  <img key={i} src={logo} alt={v.voter.name} title={v.voter.name} className="voter-dot" />
+                ) : (
+                  <span key={i} className="voter-dot voter-dot--letter" style={{ color: getColor(v.voter.name) }} title={v.voter.name}>
+                    {v.voter.name[0]}
+                  </span>
+                );
+              })}
+            </span>
           </div>
         </div>
       )}
@@ -171,88 +161,68 @@ function ContestantPanel({
   );
 }
 
-function PendingVotes({ votes }: { votes: VoteInfo[] }) {
-  if (votes.length === 0) return null;
-  return (
-    <div className="pending-votes">
-      {votes.map((v, i) => (
-        <div key={i} className={`voter-badge ${!v.finishedAt ? 'voter-badge--pending' : 'voter-badge--error'}`}>
-          <ModelName model={v.voter} showLogo={true} /> 
-          {!v.finishedAt ? " deliberating…" : " abstained"}
-        </div>
-      ))}
-    </div>
-  );
-}
+// ── Arena ─────────────────────────────────────────────────────────────────────
 
-function Arena({ round, total }: { round: RoundState; total: number }) {
+function Arena({ round, total }: { round: RoundState; total: number | null }) {
   const [contA, contB] = round.contestants;
   const showVotes = round.phase === "voting" || round.phase === "done";
   const isDone = round.phase === "done";
 
-  let votesA = 0,
-    votesB = 0;
+  let votesA = 0, votesB = 0;
   for (const v of round.votes) {
     if (v.votedFor?.name === contA.name) votesA++;
     else if (v.votedFor?.name === contB.name) votesB++;
   }
   const totalVotes = votesA + votesB;
-  
   const votersA = round.votes.filter(v => v.votedFor?.name === contA.name);
   const votersB = round.votes.filter(v => v.votedFor?.name === contB.name);
-  const pendingOrAbstained = round.votes.filter(v => !v.finishedAt || v.error || !v.votedFor);
 
-  const phaseLabel =
-    round.phase === "prompting"
-      ? "✍️ WRITING PROMPT"
-      : round.phase === "answering"
-        ? "💭 ANSWERING"
-        : round.phase === "voting"
-          ? "🗳️ JUDGES VOTING"
-          : "✅ ROUND COMPLETE";
+  const phaseText =
+    round.phase === "prompting" ? "Writing prompt" :
+    round.phase === "answering" ? "Answering" :
+    round.phase === "voting" ? "Judges voting" :
+    "Complete";
 
   return (
     <div className="arena">
-      <div className="arena__header-row">
-        <div className="arena__round-badge">
-          ROUND {round.num} {total !== null && <span className="arena__round-of">/ {total}</span>}
-        </div>
-        <div className="arena__phase">{phaseLabel}</div>
+      <div className="arena__meta">
+        <span className="arena__round">
+          Round {round.num}{total ? <span className="dim">/{total}</span> : null}
+        </span>
+        <span className="arena__phase">{phaseText}</span>
       </div>
 
       <PromptCard round={round} />
 
       {round.phase !== "prompting" && (
-        <>
-          <div className="showdown">
-            <ContestantPanel
-              task={round.answerTasks[0]}
-              voteCount={votesA}
-              totalVotes={totalVotes}
-              isWinner={isDone && votesA > votesB}
-              showVotes={showVotes}
-              voters={votersA}
-            />
-            <ContestantPanel
-              task={round.answerTasks[1]}
-              voteCount={votesB}
-              totalVotes={totalVotes}
-              isWinner={isDone && votesB > votesA}
-              showVotes={showVotes}
-              voters={votersB}
-            />
-          </div>
+        <div className="showdown">
+          <ContestantCard
+            task={round.answerTasks[0]}
+            voteCount={votesA}
+            totalVotes={totalVotes}
+            isWinner={isDone && votesA > votesB}
+            showVotes={showVotes}
+            voters={votersA}
+          />
+          <ContestantCard
+            task={round.answerTasks[1]}
+            voteCount={votesB}
+            totalVotes={totalVotes}
+            isWinner={isDone && votesB > votesA}
+            showVotes={showVotes}
+            voters={votersB}
+          />
+        </div>
+      )}
 
-          {showVotes && <PendingVotes votes={pendingOrAbstained} />}
-
-          {isDone && votesA === votesB && (
-            <div className="round-result">IT&rsquo;S A TIE!</div>
-          )}
-        </>
+      {isDone && votesA === votesB && totalVotes > 0 && (
+        <div className="tie-label">Tie</div>
       )}
     </div>
   );
 }
+
+// ── Game Over ────────────────────────────────────────────────────────────────
 
 function GameOver({ scores }: { scores: Record<string, number> }) {
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -260,102 +230,75 @@ function GameOver({ scores }: { scores: Record<string, number> }) {
 
   return (
     <div className="game-over">
-      <div className="game-over__title">GAME OVER</div>
+      <div className="game-over__label">Game Over</div>
       {champion && champion[1] > 0 && (
-        <div className="game-over__champion">
-          <div className="game-over__crown">👑</div>
-          <div className="game-over__name" style={{ color: getColor(champion[0]) }}>
+        <div className="game-over__winner">
+          <span className="game-over__crown">👑</span>
+          <span className="game-over__name" style={{ color: getColor(champion[0]) }}>
             {getLogo(champion[0]) && <img src={getLogo(champion[0])!} alt="" />}
             {champion[0]}
-          </div>
-          <div className="game-over__subtitle">is the funniest AI!</div>
+          </span>
+          <span className="game-over__sub">is the funniest AI</span>
         </div>
       )}
     </div>
   );
 }
 
-function Sidebar({ scores, activeRound, completed }: { scores: Record<string, number>; activeRound: RoundState | null; completed: RoundState[] }) {
+// ── Standings ────────────────────────────────────────────────────────────────
+
+function Standings({ scores, activeRound }: { scores: Record<string, number>; activeRound: RoundState | null }) {
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const maxScore = sorted[0]?.[1] || 1;
 
   const competing = activeRound
     ? new Set([activeRound.contestants[0].name, activeRound.contestants[1].name])
     : new Set<string>();
-  const judging = activeRound ? new Set(activeRound.votes.map((v) => v.voter.name)) : new Set<string>();
-  const prompting = activeRound?.prompter.name ?? null;
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar__section">
-        <div className="sidebar__header">STANDINGS</div>
-        <div className="sidebar__list">
-          {sorted.map(([name, score], i) => {
-            const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
-            const color = getColor(name);
-            const isActive = competing.has(name);
-            const isJudging = judging.has(name);
-            const isPrompting = name === prompting;
-
-            let role = "";
-            if (isActive) role = "⚔️";
-            else if (isPrompting) role = "✍️";
-            else if (isJudging) role = "🗳️";
-
-            return (
-              <div key={name} className={`standing ${isActive ? "standing--active" : ""}`}>
-                <div className="standing__rank">{i === 0 && score > 0 ? "👑" : `${i + 1}.`}</div>
-                <div className="standing__info">
-                  <div className="standing__name-row">
-                    <ModelName model={{id: name, name}} />
-                    {role && <span className="standing__role">{role}</span>}
-                  </div>
-                  <div className="standing__bar-row">
-                    <div className="standing__bar">
-                      <div className="standing__bar-fill" style={{ width: `${pct}%`, background: color }} />
-                    </div>
-                    <span className="standing__score">{score} {score === 1 ? 'win' : 'wins'}</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {activeRound && (
-          <div className="sidebar__legend">
-            <span>⚔️ COMPETING</span>
-            <span>✍️ PROMPTING</span>
-            <span>🗳️ JUDGING</span>
-          </div>
-        )}
+    <aside className="standings">
+      <div className="standings__head">
+        <span className="standings__title">Standings</span>
+        <a href="/history" className="standings__link">History →</a>
       </div>
-
-      <div className="sidebar__section sidebar__section--link">
-        <a href="/history" className="history-link">
-          <span>📚 View Past Games</span>
-          <span>→</span>
-        </a>
+      <div className="standings__list">
+        {sorted.map(([name, score], i) => {
+          const pct = maxScore > 0 ? Math.round((score / maxScore) * 100) : 0;
+          const color = getColor(name);
+          const active = competing.has(name);
+          return (
+            <div key={name} className={`standing ${active ? "standing--active" : ""}`}>
+              <span className="standing__rank">{i === 0 && score > 0 ? "👑" : i + 1}</span>
+              <ModelTag model={{ id: name, name }} small />
+              <div className="standing__bar">
+                <div className="standing__fill" style={{ width: `${pct}%`, background: color }} />
+              </div>
+              <span className="standing__score">{score}</span>
+            </div>
+          );
+        })}
       </div>
     </aside>
   );
 }
 
+// ── Connecting ───────────────────────────────────────────────────────────────
+
 function ConnectingScreen() {
   return (
     <div className="connecting">
-      <div className="connecting__logo">QUIPSLOP</div>
-      <div className="connecting__text">Connecting<span className="dots"><span>.</span><span>.</span><span>.</span></span></div>
+      <div className="connecting__logo"><img src="/assets/logo.svg" alt="Quipslop" /></div>
+      <div className="connecting__sub">Connecting<Dots /></div>
     </div>
   );
 }
 
-// ── App ─────────────────────────────────────────────────────────────────────
+// ── App ──────────────────────────────────────────────────────────────────────
 
 function App() {
   const [state, setState] = useState<GameState | null>(null);
-  const [totalRounds, setTotalRounds] = useState(5);
+  const [totalRounds, setTotalRounds] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
-  const mainRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -386,59 +329,44 @@ function App() {
     };
   }, []);
 
-  if (!connected || !state) {
-    return <ConnectingScreen />;
-  }
+  if (!connected || !state) return <ConnectingScreen />;
+
+  const lastCompleted = state.completed[state.completed.length - 1];
+  const isNextPrompting = state.active?.phase === "prompting" && !state.active.prompt;
+  const displayRound = isNextPrompting && lastCompleted ? lastCompleted : state.active;
 
   return (
     <div className="app">
       <div className="layout">
-        <main className="main" ref={mainRef}>
-          <a href="/" className="main-logo">QUIPSLOP</a>
-          {(() => {
-            const isGeneratingNextPrompt = state.active && state.active.phase === "prompting" && !state.active.prompt;
-            const lastCompleted = state.completed[state.completed.length - 1];
+        <main className="main">
+          <header className="header">
+            <a href="/" className="logo">
+              <img src="/assets/logo.svg" alt="Quipslop" />
+            </a>
+          </header>
 
-            if (isGeneratingNextPrompt && lastCompleted) {
-              return (
-                <>
-                  <Arena round={lastCompleted} total={totalRounds} />
-                  <div className="next-round-toast">
-                    <ModelName model={state.active!.prompter} /> is cooking up the next prompt<span className="dots"><span>.</span><span>.</span><span>.</span></span>
-                  </div>
-                </>
-              );
-            }
+          {state.done ? (
+            <GameOver scores={state.scores} />
+          ) : displayRound ? (
+            <Arena round={displayRound} total={totalRounds} />
+          ) : (
+            <div className="waiting">Starting<Dots /></div>
+          )}
 
-            if (state.active) {
-              return <Arena round={state.active} total={totalRounds} />;
-            }
-
-            if (!state.active && !state.done && state.completed.length > 0) {
-              return <Arena round={lastCompleted!} total={totalRounds} />;
-            }
-
-            if (!state.active && !state.done && state.completed.length === 0) {
-              return (
-                <div className="arena-waiting">
-                  Game starting<span className="dots"><span>.</span><span>.</span><span>.</span></span>
-                </div>
-              );
-            }
-
-            return null;
-          })()}
-
-          {state.done && <GameOver scores={state.scores} />}
+          {isNextPrompting && lastCompleted && (
+            <div className="next-toast">
+              <ModelTag model={state.active!.prompter} small /> is writing the next prompt<Dots />
+            </div>
+          )}
         </main>
 
-        <Sidebar scores={state.scores} activeRound={state.active} completed={state.completed} />
+        <Standings scores={state.scores} activeRound={state.active} />
       </div>
     </div>
   );
 }
 
-// ── Mount ───────────────────────────────────────────────────────────────────
+// ── Mount ────────────────────────────────────────────────────────────────────
 
 const root = createRoot(document.getElementById("root")!);
 root.render(<App />);

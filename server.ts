@@ -1,13 +1,14 @@
 import type { ServerWebSocket } from "bun";
 import indexHtml from "./index.html";
 import historyHtml from "./history.html";
-import { getRounds } from "./db.ts";
+import { getRounds, getAllRounds } from "./db.ts";
 import {
   MODELS,
   LOG_FILE,
   log,
   runGame,
   type GameState,
+  type RoundState,
 } from "./game.ts";
 
 // ── Game state ──────────────────────────────────────────────────────────────
@@ -21,10 +22,27 @@ if (!process.env.OPENROUTER_API_KEY) {
   process.exit(1);
 }
 
+const allRounds = getAllRounds();
+const initialScores = Object.fromEntries(MODELS.map((m) => [m.name, 0]));
+
+let initialCompleted: RoundState[] = [];
+if (allRounds.length > 0) {
+  for (const round of allRounds) {
+    if (round.scoreA !== undefined && round.scoreB !== undefined) {
+      if (round.scoreA > round.scoreB) {
+        initialScores[round.contestants[0].name] = (initialScores[round.contestants[0].name] || 0) + 1;
+      } else if (round.scoreB > round.scoreA) {
+        initialScores[round.contestants[1].name] = (initialScores[round.contestants[1].name] || 0) + 1;
+      }
+    }
+  }
+  initialCompleted = [allRounds[allRounds.length - 1]];
+}
+
 const gameState: GameState = {
-  completed: [],
+  completed: initialCompleted,
   active: null,
-  scores: Object.fromEntries(MODELS.map((m) => [m.name, 0])),
+  scores: initialScores,
   done: false,
   isPaused: false,
 };
