@@ -10,7 +10,7 @@ export const MODELS = [
   { id: "moonshotai/kimi-k2", name: "Kimi K2" },
   // { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5" },
   { id: "deepseek/deepseek-v3.2", name: "DeepSeek 3.2" },
-  { id: "z-ai/glm-5", name: "GLM-5" },
+  // { id: "z-ai/glm-5", name: "GLM-5" },
   { id: "openai/gpt-5.2", name: "GPT-5.2" },
   { id: "anthropic/claude-opus-4.6", name: "Opus 4.6" },
   { id: "anthropic/claude-sonnet-4.6", name: "Sonnet 4.6" },
@@ -249,6 +249,8 @@ export async function callVote(
   return cleaned.startsWith("A") ? "A" : "B";
 }
 
+import { saveRound } from "./db.ts";
+
 // ── Game loop ───────────────────────────────────────────────────────────────
 
 export async function runGame(
@@ -391,6 +393,7 @@ export async function runGame(
     await new Promise((r) => setTimeout(r, 2000));
 
     // Archive round
+    saveRound(round);
     state.completed = [...state.completed, round];
     state.active = null;
     rerender();

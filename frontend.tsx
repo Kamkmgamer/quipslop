@@ -252,28 +252,6 @@ function Arena({ round, total }: { round: RoundState; total: number }) {
   );
 }
 
-function PastRoundMini({ round }: { round: RoundState }) {
-  const [contA, contB] = round.contestants;
-  let votesA = 0, votesB = 0;
-  for (const v of round.votes) {
-    if (v.votedFor?.name === contA.name) votesA++;
-    else if (v.votedFor?.name === contB.name) votesB++;
-  }
-  const winner = votesA > votesB ? contA : votesB > votesA ? contB : null;
-
-  return (
-    <div className="past-round-mini">
-      <div className="past-round-mini__top">
-        <span className="past-round-mini__num">R{round.num}</span>
-        <span className="past-round-mini__prompt">"{round.prompt}"</span>
-      </div>
-      <div className="past-round-mini__winner">
-        {winner ? <><ModelName model={winner} showLogo={true} className="small-model-name" /> won</> : <span className="past-round-mini__tie">Tie</span>}
-      </div>
-    </div>
-  );
-}
-
 function GameOver({ scores }: { scores: Record<string, number> }) {
   const sorted = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const champion = sorted[0];
@@ -350,16 +328,12 @@ function Sidebar({ scores, activeRound, completed }: { scores: Record<string, nu
         )}
       </div>
 
-      {completed.length > 0 && (
-        <div className="sidebar__section sidebar__section--history">
-          <div className="sidebar__header">PAST ROUNDS</div>
-          <div className="sidebar__history-list">
-            {[...completed].reverse().map(round => (
-              <PastRoundMini key={round.num} round={round} />
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="sidebar__section sidebar__section--link">
+        <a href="/history" className="history-link">
+          <span>📚 View Past Games</span>
+          <span>→</span>
+        </a>
+      </div>
     </aside>
   );
 }

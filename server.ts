@@ -1,5 +1,7 @@
 import type { ServerWebSocket } from "bun";
-import index from "./index.html";
+import indexHtml from "./index.html";
+import historyHtml from "./history.html";
+import { getRounds } from "./db.ts";
 import {
   MODELS,
   LOG_FILE,
@@ -39,12 +41,13 @@ function broadcast() {
 
 // ── Server ──────────────────────────────────────────────────────────────────
 
-const port = parseInt(process.env.PORT ?? "3000", 10);
+const port = parseInt(process.env.PORT ?? "5109", 10); // 5109 = SLOP
 
 const server = Bun.serve({
   port,
   routes: {
-    "/": index,
+    "/": indexHtml,
+    "/history": historyHtml,
   },
   fetch(req, server) {
     const url = new URL(req.url);
@@ -52,6 +55,12 @@ const server = Bun.serve({
       const path = `./public${url.pathname}`;
       const file = Bun.file(path);
       return new Response(file);
+    }
+    if (url.pathname === "/api/history") {
+      const page = parseInt(url.searchParams.get("page") || "1", 10);
+      return new Response(JSON.stringify(getRounds(page)), {
+        headers: { "Content-Type": "application/json" }
+      });
     }
     if (url.pathname === "/ws") {
       const upgraded = server.upgrade(req);
