@@ -83,7 +83,7 @@ const server = Bun.serve({
       clients.delete(ws);
     },
   },
-  development: {
+  development: process.env.NODE_ENV === "production" ? false : {
     hmr: true,
     console: true,
   },

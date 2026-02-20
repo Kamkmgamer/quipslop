@@ -4,6 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "start": "bun server.ts",
     "start:cli": "bun quipslop.tsx",
     "start:web": "bun --hot server.ts"
   },
