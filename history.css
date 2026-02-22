@@ -55,6 +55,12 @@ body {
   margin-bottom: 16px;
 }
 
+.page-links {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .page-title {
   font-family: 'JetBrains Mono', monospace;
   font-size: 14px;

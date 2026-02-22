@@ -266,9 +266,14 @@ function App() {
       <main className="main">
         <div className="page-header">
           <div className="page-title">Past Rounds</div>
-          <a href="/" className="back-link">
-            ← Back to Game
-          </a>
+          <div className="page-links">
+            <a href="/" className="back-link">
+              ← Back to Game
+            </a>
+            <a href="/admin" className="back-link">
+              Admin
+            </a>
+          </div>
         </div>
 
         {loading ? (

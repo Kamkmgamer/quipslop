@@ -36,3 +36,8 @@ export function getAllRounds() {
   const rows = db.query("SELECT data FROM rounds ORDER BY num ASC, id ASC").all() as { data: string }[];
   return rows.map(r => JSON.parse(r.data) as RoundState);
 }
+
+export function clearAllRounds() {
+  db.exec("DELETE FROM rounds;");
+  db.exec("DELETE FROM sqlite_sequence WHERE name = 'rounds';");
+}

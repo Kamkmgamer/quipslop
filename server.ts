@@ -2,7 +2,8 @@ import type { ServerWebSocket } from "bun";
 import { timingSafeEqual } from "node:crypto";
 import indexHtml from "./index.html";
 import historyHtml from "./history.html";
-import { getRounds, getAllRounds } from "./db.ts";
+import adminHtml from "./admin.html";
+import { clearAllRounds, getRounds, getAllRounds } from "./db.ts";
 import {
   MODELS,
   LOG_FILE,
@@ -52,6 +53,7 @@ const gameState: GameState = {
   scores: initialScores,
   done: false,
   isPaused: false,
+  generation: 0,
 };
 
 // ── Guardrails ──────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ const ADMIN_LIMIT_PER_MIN = parsePositiveInt(
   process.env.ADMIN_LIMIT_PER_MIN,
   10,
 );
-const MAX_WS_GLOBAL = parsePositiveInt(process.env.MAX_WS_GLOBAL, 2_000);
+const MAX_WS_GLOBAL = parsePositiveInt(process.env.MAX_WS_GLOBAL, 100_000);
 const MAX_WS_PER_IP = parsePositiveInt(process.env.MAX_WS_PER_IP, 8);
 const MAX_HISTORY_PAGE = parsePositiveInt(
   process.env.MAX_HISTORY_PAGE,
@@ -86,6 +88,8 @@ const MAX_HISTORY_CACHE_KEYS = parsePositiveInt(
   process.env.MAX_HISTORY_CACHE_KEYS,
   500,
 );
+const ADMIN_COOKIE = "quipslop_admin";
+const ADMIN_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 const requestWindows = new Map<string, number[]>();
 const wsByIp = new Map<string, number>();
@@ -136,11 +140,59 @@ function secureCompare(a: string, b: string): boolean {
   return timingSafeEqual(aBuf, bBuf);
 }
 
+function parseCookies(req: Request): Record<string, string> {
+  const raw = req.headers.get("cookie");
+  if (!raw) return {};
+  const cookies: Record<string, string> = {};
+  for (const pair of raw.split(";")) {
+    const idx = pair.indexOf("=");
+    if (idx <= 0) continue;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    if (!key) continue;
+    try {
+      cookies[key] = decodeURIComponent(val);
+    } catch {
+      cookies[key] = val;
+    }
+  }
+  return cookies;
+}
+
+function buildAdminCookie(
+  passcode: string,
+  isSecure: boolean,
+  maxAgeSeconds = ADMIN_COOKIE_MAX_AGE_SECONDS,
+): string {
+  const parts = [
+    `${ADMIN_COOKIE}=${encodeURIComponent(passcode)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Strict",
+    `Max-Age=${maxAgeSeconds}`,
+  ];
+  if (isSecure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
+}
+
+function clearAdminCookie(isSecure: boolean): string {
+  return buildAdminCookie("", isSecure, 0);
+}
+
+function getProvidedAdminSecret(req: Request, url: URL): string {
+  const headerOrQuery =
+    req.headers.get("x-admin-secret") ?? url.searchParams.get("secret");
+  if (headerOrQuery) return headerOrQuery;
+  const cookies = parseCookies(req);
+  return cookies[ADMIN_COOKIE] ?? "";
+}
+
 function isAdminAuthorized(req: Request, url: URL): boolean {
   const expected = process.env.ADMIN_SECRET;
   if (!expected) return false;
-  const provided =
-    req.headers.get("x-admin-secret") ?? url.searchParams.get("secret") ?? "";
+  const provided = getProvidedAdminSecret(req, url);
   if (!provided) return false;
   return secureCompare(provided, expected);
 }
@@ -178,6 +230,17 @@ function broadcast() {
   }
 }
 
+function getAdminSnapshot() {
+  return {
+    isPaused: gameState.isPaused,
+    isRunningRound: Boolean(gameState.active),
+    done: gameState.done,
+    completedInMemory: gameState.completed.length,
+    persistedRounds: getRounds(1, 1).total,
+    viewerCount: clients.size,
+  };
+}
+
 // ── Server ──────────────────────────────────────────────────────────────────
 
 const port = parseInt(process.env.PORT ?? "5109", 10); // 5109 = SLOP
@@ -187,8 +250,9 @@ const server = Bun.serve<WsData>({
   routes: {
     "/": indexHtml,
     "/history": historyHtml,
+    "/admin": adminHtml,
   },
-  fetch(req, server) {
+  async fetch(req, server) {
     const url = new URL(req.url);
     const ip = getClientIp(req, server);
 
@@ -207,7 +271,108 @@ const server = Bun.serve<WsData>({
       return new Response("ok", { status: 200 });
     }
 
-    if (url.pathname === "/api/pause" || url.pathname === "/api/resume") {
+    if (url.pathname === "/api/admin/login") {
+      if (req.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      if (isRateLimited(`admin:${ip}`, ADMIN_LIMIT_PER_MIN, WINDOW_MS)) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+
+      const expected = process.env.ADMIN_SECRET;
+      if (!expected) {
+        return new Response("ADMIN_SECRET is not configured", { status: 503 });
+      }
+
+      let passcode = "";
+      try {
+        const body = await req.json();
+        passcode = String((body as Record<string, unknown>).passcode ?? "");
+      } catch {
+        return new Response("Invalid JSON body", { status: 400 });
+      }
+
+      if (!passcode || !secureCompare(passcode, expected)) {
+        return new Response("Invalid passcode", { status: 401 });
+      }
+
+      const isSecure = url.protocol === "https:";
+      return new Response(JSON.stringify({ ok: true, ...getAdminSnapshot() }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Set-Cookie": buildAdminCookie(passcode, isSecure),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (url.pathname === "/api/admin/logout") {
+      if (req.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      const isSecure = url.protocol === "https:";
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "Set-Cookie": clearAdminCookie(isSecure),
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (url.pathname === "/api/admin/status") {
+      if (isRateLimited(`admin:${ip}`, ADMIN_LIMIT_PER_MIN, WINDOW_MS)) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+      if (!isAdminAuthorized(req, url)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return new Response(JSON.stringify({ ok: true, ...getAdminSnapshot() }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (url.pathname === "/api/admin/export") {
+      if (req.method !== "GET") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "GET" },
+        });
+      }
+      if (isRateLimited(`admin:${ip}`, ADMIN_LIMIT_PER_MIN, WINDOW_MS)) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+      if (!isAdminAuthorized(req, url)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        rounds: getAllRounds(),
+        state: gameState,
+      };
+      return new Response(JSON.stringify(payload, null, 2), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          "Content-Disposition": `attachment; filename="quipslop-export-${Date.now()}.json"`,
+        },
+      });
+    }
+
+    if (url.pathname === "/api/admin/reset") {
       if (req.method !== "POST") {
         return new Response("Method Not Allowed", {
           status: 405,
@@ -221,16 +386,76 @@ const server = Bun.serve<WsData>({
         return new Response("Unauthorized", { status: 401 });
       }
 
-      if (url.pathname === "/api/pause") {
+      let confirm = "";
+      try {
+        const body = await req.json();
+        confirm = String((body as Record<string, unknown>).confirm ?? "");
+      } catch {
+        return new Response("Invalid JSON body", { status: 400 });
+      }
+      if (confirm !== "RESET") {
+        return new Response("Confirmation token must be RESET", {
+          status: 400,
+        });
+      }
+
+      clearAllRounds();
+      historyCache.clear();
+      gameState.completed = [];
+      gameState.active = null;
+      gameState.scores = Object.fromEntries(MODELS.map((m) => [m.name, 0]));
+      gameState.done = false;
+      gameState.isPaused = true;
+      gameState.generation += 1;
+      broadcast();
+
+      log("WARN", "admin", "Database reset requested", { ip });
+      return new Response(JSON.stringify({ ok: true, ...getAdminSnapshot() }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    if (
+      url.pathname === "/api/pause" ||
+      url.pathname === "/api/resume" ||
+      url.pathname === "/api/admin/pause" ||
+      url.pathname === "/api/admin/resume"
+    ) {
+      if (req.method !== "POST") {
+        return new Response("Method Not Allowed", {
+          status: 405,
+          headers: { Allow: "POST" },
+        });
+      }
+      if (isRateLimited(`admin:${ip}`, ADMIN_LIMIT_PER_MIN, WINDOW_MS)) {
+        return new Response("Too Many Requests", { status: 429 });
+      }
+      if (!isAdminAuthorized(req, url)) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      if (url.pathname.endsWith("/pause")) {
         gameState.isPaused = true;
       } else {
         gameState.isPaused = false;
       }
       broadcast();
+      const action = url.pathname.endsWith("/pause") ? "Paused" : "Resumed";
+      if (url.pathname === "/api/pause" || url.pathname === "/api/resume") {
+        return new Response(action, { status: 200 });
+      }
       return new Response(
-        url.pathname === "/api/pause" ? "Paused" : "Resumed",
+        JSON.stringify({ ok: true, action, ...getAdminSnapshot() }),
         {
           status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-store",
+          },
         },
       );
     }

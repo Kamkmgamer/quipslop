@@ -36,6 +36,8 @@ type GameState = {
   active: RoundState | null;
   scores: Record<string, number>;
   done: boolean;
+  isPaused: boolean;
+  generation: number;
 };
 type ServerMessage = {
   type: "state";
@@ -340,9 +342,14 @@ function Standings({
     <aside className="standings">
       <div className="standings__head">
         <span className="standings__title">Standings</span>
-        <a href="/history" className="standings__link">
-          History →
-        </a>
+        <div className="standings__links">
+          <a href="/history" className="standings__link">
+            History
+          </a>
+          <a href="/admin" className="standings__link">
+            Admin
+          </a>
+        </div>
       </div>
       <div className="standings__list">
         {sorted.map(([name, score], i) => {
@@ -443,9 +450,19 @@ function App() {
             <a href="/" className="logo">
               <img src="/assets/logo.svg" alt="quipslop" />
             </a>
-            <div className="viewer-pill" aria-live="polite">
-              <span className="viewer-pill__dot" />
-              {viewerCount} viewer{viewerCount === 1 ? "" : "s"} watching
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              {state.isPaused && (
+                <div
+                  className="viewer-pill"
+                  style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}
+                >
+                  Paused
+                </div>
+              )}
+              <div className="viewer-pill" aria-live="polite">
+                <span className="viewer-pill__dot" />
+                {viewerCount} viewer{viewerCount === 1 ? "" : "s"} watching
+              </div>
             </div>
           </header>
 

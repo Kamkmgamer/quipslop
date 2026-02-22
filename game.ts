@@ -72,6 +72,7 @@ export type GameState = {
   scores: Record<string, number>;
   done: boolean;
   isPaused: boolean;
+  generation: number;
 };
 
 // ── OpenRouter ──────────────────────────────────────────────────────────────
@@ -254,8 +255,9 @@ export async function runGame(
   rerender: () => void,
 ) {
   let startRound = 1;
-  if (state.completed.length > 0) {
-    startRound = state.completed[state.completed.length - 1].num + 1;
+  const lastCompletedRound = state.completed.at(-1);
+  if (lastCompletedRound) {
+    startRound = lastCompletedRound.num + 1;
   }
   
   const endRound = startRound + runs - 1;
@@ -264,6 +266,7 @@ export async function runGame(
     while (state.isPaused) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
+    const roundGeneration = state.generation;
 
     const shuffled = shuffle([...MODELS]);
     const prompter = shuffled[0]!;
@@ -300,11 +303,17 @@ export async function runGame(
         3,
         `R${r}:prompt:${prompter.name}`,
       );
+      if (state.generation !== roundGeneration) {
+        continue;
+      }
       round.promptTask.finishedAt = Date.now();
       round.promptTask.result = prompt;
       round.prompt = prompt;
       rerender();
     } catch {
+      if (state.generation !== roundGeneration) {
+        continue;
+      }
       round.promptTask.finishedAt = Date.now();
       round.promptTask.error = "Failed after 3 attempts";
       round.phase = "done";
@@ -323,6 +332,9 @@ export async function runGame(
 
     await Promise.all(
       round.answerTasks.map(async (task) => {
+        if (state.generation !== roundGeneration) {
+          return;
+        }
         try {
           const answer = await withRetry(
             () => callGenerateAnswer(task.model, round.prompt!),
@@ -330,15 +342,27 @@ export async function runGame(
             3,
             `R${r}:answer:${task.model.name}`,
           );
+          if (state.generation !== roundGeneration) {
+            return;
+          }
           task.result = answer;
         } catch {
+          if (state.generation !== roundGeneration) {
+            return;
+          }
           task.error = "Failed to answer";
           task.result = "[no answer]";
+        }
+        if (state.generation !== roundGeneration) {
+          return;
         }
         task.finishedAt = Date.now();
         rerender();
       }),
     );
+    if (state.generation !== roundGeneration) {
+      continue;
+    }
 
     // ── Vote phase ──
     round.phase = "voting";
@@ -350,6 +374,9 @@ export async function runGame(
 
     await Promise.all(
       round.votes.map(async (vote) => {
+        if (state.generation !== roundGeneration) {
+          return;
+        }
         try {
           const showAFirst = Math.random() > 0.5;
           const first = showAFirst ? { answer: answerA } : { answer: answerB };
@@ -361,6 +388,9 @@ export async function runGame(
             3,
             `R${r}:vote:${vote.voter.name}`,
           );
+          if (state.generation !== roundGeneration) {
+            return;
+          }
           const votedFor = showAFirst
             ? result === "A"
               ? contA
@@ -372,12 +402,21 @@ export async function runGame(
           vote.finishedAt = Date.now();
           vote.votedFor = votedFor;
         } catch {
+          if (state.generation !== roundGeneration) {
+            return;
+          }
           vote.finishedAt = Date.now();
           vote.error = true;
+        }
+        if (state.generation !== roundGeneration) {
+          return;
         }
         rerender();
       }),
     );
+    if (state.generation !== roundGeneration) {
+      continue;
+    }
 
     // ── Score ──
     let votesA = 0;
@@ -397,6 +436,9 @@ export async function runGame(
     rerender();
 
     await new Promise((r) => setTimeout(r, 5000));
+    if (state.generation !== roundGeneration) {
+      continue;
+    }
 
     // Archive round
     saveRound(round);
