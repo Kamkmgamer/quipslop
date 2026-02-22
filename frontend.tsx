@@ -44,6 +44,7 @@ type ServerMessage = {
   data: GameState;
   totalRounds: number;
   viewerCount: number;
+  version?: string;
 };
 
 // ── Model colors & logos ─────────────────────────────────────────────────────
@@ -410,6 +411,7 @@ function App() {
     let ws: WebSocket;
     let reconnectTimer: ReturnType<typeof setTimeout>;
 
+    let knownVersion: string | null = null;
     function connect() {
       ws = new WebSocket(wsUrl);
       ws.onopen = () => setConnected(true);
@@ -420,6 +422,10 @@ function App() {
       ws.onmessage = (e) => {
         const msg: ServerMessage = JSON.parse(e.data);
         if (msg.type === "state") {
+          if (msg.version) {
+            if (!knownVersion) knownVersion = msg.version;
+            else if (knownVersion !== msg.version) return location.reload();
+          }
           setState(msg.data);
           setTotalRounds(msg.totalRounds);
           setViewerCount(msg.viewerCount);

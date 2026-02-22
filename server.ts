@@ -14,6 +14,8 @@ import {
   type RoundState,
 } from "./game.ts";
 
+const VERSION = crypto.randomUUID().slice(0, 8);
+
 // ── Game state ──────────────────────────────────────────────────────────────
 
 const runsArg = process.argv.find((a) => a.startsWith("runs="));
@@ -225,6 +227,7 @@ function broadcast() {
     data: gameState,
     totalRounds: runs,
     viewerCount: clients.size,
+    version: VERSION,
   });
   for (const ws of clients) {
     ws.send(msg);

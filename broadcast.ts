@@ -38,6 +38,7 @@ type ServerMessage = {
   data: GameState;
   totalRounds: number;
   viewerCount: number;
+  version?: string;
 };
 
 const MODEL_COLORS: Record<string, string> = {
@@ -73,6 +74,7 @@ let connected = false;
 let ws: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let lastMessageAt = 0;
+let knownVersion: string | null = null;
 
 function getColor(name: string): string {
   return MODEL_COLORS[name] ?? "#aeb6d6";
@@ -128,6 +130,10 @@ function setupWebSocket() {
     try {
       const msg = JSON.parse(String(e.data)) as ServerMessage;
       if (msg.type === "state") {
+        if (msg.version) {
+          if (!knownVersion) knownVersion = msg.version;
+          else if (knownVersion !== msg.version) return location.reload();
+        }
         state = msg.data;
         totalRounds =
           Number.isFinite(msg.totalRounds) && msg.totalRounds >= 0
