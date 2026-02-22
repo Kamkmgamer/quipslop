@@ -343,26 +343,35 @@ function drawRound(round: RoundState) {
   const promptText =
     round.prompt ??
     (round.phase === "prompting" ? "Generating prompt..." : "Prompt unavailable");
-  
+
+  const promptFont = '400 48px "DM Serif Display", serif';
+  const promptLineHeight = 64;
+  const promptMaxLines = 4;
+  const promptMaxWidth = mainW - 160;
+  const promptLines = textLines(promptText, promptMaxWidth, promptFont, promptMaxLines);
+  const promptHeight = promptLines.length * promptLineHeight;
+
   ctx.fillStyle = "#D97757";
-  ctx.fillRect(64, 230, 4, Math.min(100, promptText.length > 100 ? 120 : 64));
+  ctx.fillRect(64, 230, 4, promptHeight);
 
   drawTextBlock(
     promptText,
     92,
     260,
-    mainW - 160,
-    64,
-    '400 48px "DM Serif Display", serif',
+    promptMaxWidth,
+    promptLineHeight,
+    promptFont,
     round.prompt ? "#ededed" : "#444",
-    2,
+    promptMaxLines,
   );
 
   if (round.phase !== "prompting") {
     const [taskA, taskB] = round.answerTasks;
     const cardW = (mainW - 160) / 2;
-    drawContestantCard(taskA, 64, 400, cardW, 580, round);
-    drawContestantCard(taskB, 64 + cardW + 32, 400, cardW, 580, round);
+    const cardY = 240 + promptHeight + 32;
+    const cardH = HEIGHT - cardY - 40;
+    drawContestantCard(taskA, 64, cardY, cardW, cardH, round);
+    drawContestantCard(taskB, 64 + cardW + 32, cardY, cardW, cardH, round);
   }
 }
 
@@ -532,7 +541,7 @@ function draw() {
   
   const lastCompleted = state.completed[state.completed.length - 1];
   const isNextPrompting = state.active?.phase === "prompting" && !state.active.prompt;
-  const displayRound = isNextPrompting && lastCompleted ? lastCompleted : state.active;
+  const displayRound = isNextPrompting && lastCompleted ? lastCompleted : (state.active ?? lastCompleted ?? null);
 
   if (state.done) {
     drawDone(state.scores);
