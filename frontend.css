@@ -713,7 +713,7 @@ body {
     width: 100%;
     border-top: 1px solid var(--border);
     border-left: none;
-    max-height: 200px;
+    max-height: 400px;
     padding: 16px 48px;
   }
 

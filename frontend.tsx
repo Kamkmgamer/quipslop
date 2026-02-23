@@ -392,7 +392,7 @@ function Standings({
       <div
         ref={resizeRef}
         className={`standings__resize-handle standings__resize-handle--${position}`}
-        onMouseDown={() => setIsResizing(true)}
+        onMouseDown={(e) => { e.preventDefault(); setIsResizing(true); }}
       />
       <div className="standings__head">
         <span className="standings__title">Standings</span>
@@ -471,9 +471,11 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
 
   const toggleSidebarPosition = useCallback(() => {
-    setSidebarPosition((p) => (p === "side" ? "bottom" : "side"));
-    setSidebarWidth(sidebarPosition === "side" ? 180 : SIDEBAR_DEFAULT_WIDTH);
-  }, [sidebarPosition]);
+    setSidebarPosition((p) => {
+      setSidebarWidth(p === "side" ? 180 : SIDEBAR_DEFAULT_WIDTH);
+      return p === "side" ? "bottom" : "side";
+    });
+  }, []);
 
   useEffect(() => {
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
