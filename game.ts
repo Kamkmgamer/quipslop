@@ -272,7 +272,7 @@ export async function runGame(
   runs: number,
   state: GameState,
   rerender: () => void,
-  onViewerVotingStart?: () => void,
+  onViewerVotingStart?: (round: RoundState) => void,
 ) {
   let startRound = 1;
   const lastCompletedRound = state.completed.at(-1);
@@ -403,7 +403,7 @@ export async function runGame(
     round.viewerVotesA = 0;
     round.viewerVotesB = 0;
     round.viewerVotingEndsAt = Date.now() + 30_000;
-    onViewerVotingStart?.();
+    onViewerVotingStart?.(round);
     rerender();
 
     await Promise.all([

@@ -105,9 +105,17 @@ const FOSSABOT_CHANNEL_LOGIN = (
   process.env.FOSSABOT_CHANNEL_LOGIN ?? "quipslop"
 ).trim().toLowerCase();
 const FOSSABOT_VOTE_SECRET = process.env.FOSSABOT_VOTE_SECRET ?? "";
+const FOSSABOT_CHAT_CHANNEL_ID = (
+  process.env.FOSSABOT_CHAT_CHANNEL_ID ?? "813591620327550976"
+).trim();
+const FOSSABOT_SESSION_TOKEN = (process.env.FOSSABOT_SESSION_TOKEN ?? "").trim();
 const FOSSABOT_VALIDATE_TIMEOUT_MS = parsePositiveInt(
   process.env.FOSSABOT_VALIDATE_TIMEOUT_MS,
   1_500,
+);
+const FOSSABOT_SEND_CHAT_TIMEOUT_MS = parsePositiveInt(
+  process.env.FOSSABOT_SEND_CHAT_TIMEOUT_MS,
+  3_000,
 );
 const VIEWER_VOTE_BROADCAST_DEBOUNCE_MS = parsePositiveInt(
   process.env.VIEWER_VOTE_BROADCAST_DEBOUNCE_MS,
@@ -310,6 +318,69 @@ async function validateFossabotRequest(validateUrl: string): Promise<boolean> {
     return Boolean(body && typeof body.context_url === "string");
   } catch {
     return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function sendFossabotChatMessage(messageText: string): Promise<void> {
+  if (!FOSSABOT_SESSION_TOKEN) {
+    log(
+      "WARN",
+      "fossabot:chat",
+      "Skipped chat message because FOSSABOT_SESSION_TOKEN is not configured",
+    );
+    return;
+  }
+  if (!FOSSABOT_CHAT_CHANNEL_ID) {
+    log(
+      "WARN",
+      "fossabot:chat",
+      "Skipped chat message because FOSSABOT_CHAT_CHANNEL_ID is not configured",
+    );
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    FOSSABOT_SEND_CHAT_TIMEOUT_MS,
+  );
+
+  try {
+    const url = `https://api.fossabot.com/v2/channels/${FOSSABOT_CHAT_CHANNEL_ID}/bot/send_chat_message`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${FOSSABOT_SESSION_TOKEN}`,
+      },
+      body: JSON.stringify({ messageText }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      log("WARN", "fossabot:chat", "Fossabot send_chat_message failed", {
+        status: res.status,
+        body: body.slice(0, 250),
+      });
+      return;
+    }
+
+    const response = (await res.json().catch(() => null)) as
+      | { transactionId?: unknown }
+      | null;
+    log("INFO", "fossabot:chat", "Sent voting prompt to Twitch chat", {
+      transactionId:
+        response && typeof response.transactionId === "string"
+          ? response.transactionId
+          : undefined,
+    });
+  } catch (error) {
+    log("WARN", "fossabot:chat", "Failed to send chat message", {
+      error: error instanceof Error ? error.message : String(error),
+    });
   } finally {
     clearTimeout(timeout);
   }
@@ -857,8 +928,12 @@ log("INFO", "server", `Web server started on port ${server.port}`, {
 
 // ── Start game ──────────────────────────────────────────────────────────────
 
-runGame(runs, gameState, broadcast, () => {
+runGame(runs, gameState, broadcast, (round) => {
   viewerVoters.clear();
+
+  const [modelA, modelB] = round.contestants;
+  const messageText = `1 in chat for ${modelA.name}, 2 in chat for ${modelB.name}`;
+  void sendFossabotChatMessage(messageText);
 }).then(() => {
   console.log(`\n✅ Game complete! Log: ${LOG_FILE}`);
 });
