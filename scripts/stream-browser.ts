@@ -149,6 +149,7 @@ async function main() {
     stdout: mode === "dryrun" ? "pipe" : "inherit",
     stderr: "inherit",
   });
+  let ffmpegWritable = true;
 
   let ffplay: Bun.Subprocess | null = null;
   let ffplayPump: Promise<void> | null = null;
@@ -187,6 +188,7 @@ async function main() {
     firstChunkResolve = resolve;
     firstChunkReject = reject;
   });
+  let shutdown: (() => Promise<void>) | null = null;
 
   const chunkServer = Bun.serve({
     port: 0,
@@ -199,7 +201,9 @@ async function main() {
     },
     websocket: {
       message(_ws, message) {
-        if (!ffmpeg.stdin) return;
+        if (!ffmpegWritable || !ffmpeg.stdin || typeof ffmpeg.stdin === "number") {
+          return;
+        }
         if (typeof message === "string") return;
 
         let chunk: Uint8Array | null = null;
@@ -220,8 +224,12 @@ async function main() {
           firstChunkResolve = null;
           firstChunkReject = null;
         } catch (error) {
+          ffmpegWritable = false;
           const detail = error instanceof Error ? error : new Error(String(error));
           firstChunkReject?.(detail);
+          firstChunkResolve = null;
+          firstChunkReject = null;
+          void shutdown?.();
         }
       },
     },
@@ -263,9 +271,10 @@ async function main() {
   console.log(`Streaming from ${broadcastUrl} in ${mode} mode`);
 
   let shuttingDown = false;
-  const shutdown = async () => {
+  shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    ffmpegWritable = false;
     try {
       chunkServer.stop(true);
     } catch {}
@@ -290,14 +299,20 @@ async function main() {
     }
   };
 
-  process.on("SIGINT", () => {
-    void shutdown();
-  });
-  process.on("SIGTERM", () => {
-    void shutdown();
+  const ffmpegExit = ffmpeg.exited.then((code) => {
+    ffmpegWritable = false;
+    void shutdown?.();
+    return code;
   });
 
-  const exitCode = await ffmpeg.exited;
+  process.on("SIGINT", () => {
+    void shutdown?.();
+  });
+  process.on("SIGTERM", () => {
+    void shutdown?.();
+  });
+
+  const exitCode = await ffmpegExit;
   if (ffplayPump) {
     await ffplayPump.catch(() => {
       // Ignore downstream pipe failures on shutdown.
@@ -306,7 +321,7 @@ async function main() {
   if (ffplay) {
     await ffplay.exited;
   }
-  await shutdown();
+  await shutdown?.();
 
   if (exitCode !== 0) {
     process.exit(exitCode);

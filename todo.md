@@ -5,6 +5,6 @@
 
 ## TODO Bugfixes
 
-- [ ] Text wrapping on long single-strings
-- [ ] Stream crashing on fresh deployment (because the ffmpeg pipe dies, we should handle this in the ffmpeg script)
-- [ ] Throttle view count updates
+- [x] Text wrapping on long single-strings
+- [x] Stream crashing on fresh deployment (because the ffmpeg pipe dies, we should handle this in the ffmpeg script)
+- [x] Throttle view count updates

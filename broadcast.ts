@@ -191,15 +191,53 @@ function textLines(
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
+  const maxChunkLength = 1;
+
+  const splitWordToFit = (word: string): string[] => {
+    if (!word) return [];
+    if (ctx.measureText(word).width <= maxWidth) return [word];
+
+    const pieces: string[] = [];
+    let remaining = word;
+    while (remaining.length > 0) {
+      let low = maxChunkLength;
+      let high = remaining.length;
+      let best = maxChunkLength;
+
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        const candidate = remaining.slice(0, mid);
+        if (ctx.measureText(candidate).width <= maxWidth) {
+          best = mid;
+          low = mid + 1;
+        } else {
+          high = mid - 1;
+        }
+      }
+
+      pieces.push(remaining.slice(0, best));
+      remaining = remaining.slice(best);
+    }
+
+    return pieces;
+  };
 
   for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (ctx.measureText(candidate).width <= maxWidth) {
-      current = candidate;
-      continue;
+    const segments = splitWordToFit(word);
+    let isFirstSegment = true;
+    for (const segment of segments) {
+      const prefix = isFirstSegment && current ? " " : "";
+      const candidate = current ? `${current}${prefix}${segment}` : segment;
+      if (ctx.measureText(candidate).width <= maxWidth) {
+        current = candidate;
+        isFirstSegment = false;
+        continue;
+      }
+      if (current) lines.push(current);
+      current = segment;
+      isFirstSegment = false;
+      if (lines.length >= maxLines - 1) break;
     }
-    if (current) lines.push(current);
-    current = word;
     if (lines.length >= maxLines - 1) break;
   }
 
