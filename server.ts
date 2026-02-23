@@ -218,6 +218,16 @@ function setHistoryCache(key: string, body: string, expiresAt: number) {
 // ── WebSocket clients ───────────────────────────────────────────────────────
 
 const clients = new Set<ServerWebSocket<WsData>>();
+const viewerVoters = new Set<ServerWebSocket<WsData>>();
+let viewerVoteBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleViewerVoteBroadcast() {
+  if (viewerVoteBroadcastTimer) return;
+  viewerVoteBroadcastTimer = setTimeout(() => {
+    viewerVoteBroadcastTimer = null;
+    broadcast();
+  }, 5_000);
+}
 
 function getClientState() {
   return {
@@ -593,8 +603,24 @@ const server = Bun.serve<WsData>({
       // Notify everyone else with just the viewer count
       broadcastViewerCount();
     },
-    message(_ws, _message) {
-      // Spectator-only, no client messages handled
+    message(ws, message) {
+      try {
+        const msg = JSON.parse(String(message));
+        if (msg.type !== "vote") return;
+
+        const round = gameState.active;
+        if (!round || round.phase !== "voting") return;
+        if (!round.viewerVotingEndsAt || Date.now() > round.viewerVotingEndsAt) return;
+        if (viewerVoters.has(ws)) return;
+        if (msg.votedFor !== "A" && msg.votedFor !== "B") return;
+
+        viewerVoters.add(ws);
+        if (msg.votedFor === "A") round.viewerVotesA = (round.viewerVotesA ?? 0) + 1;
+        else round.viewerVotesB = (round.viewerVotesB ?? 0) + 1;
+
+        ws.send(JSON.stringify({ type: "votedAck" }));
+        scheduleViewerVoteBroadcast();
+      } catch {}
     },
     close(ws) {
       clients.delete(ws);
@@ -634,6 +660,8 @@ log("INFO", "server", `Web server started on port ${server.port}`, {
 
 // ── Start game ──────────────────────────────────────────────────────────────
 
-runGame(runs, gameState, broadcast).then(() => {
+runGame(runs, gameState, broadcast, () => {
+  viewerVoters.clear();
+}).then(() => {
   console.log(`\n✅ Game complete! Log: ${LOG_FILE}`);
 });

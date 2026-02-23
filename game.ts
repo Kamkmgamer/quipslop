@@ -64,6 +64,9 @@ export type RoundState = {
   votes: VoteInfo[];
   scoreA?: number;
   scoreB?: number;
+  viewerVotesA?: number;
+  viewerVotesB?: number;
+  viewerVotingEndsAt?: number;
 };
 
 export type GameState = {
@@ -268,6 +271,7 @@ export async function runGame(
   runs: number,
   state: GameState,
   rerender: () => void,
+  onViewerVotingStart?: () => void,
 ) {
   let startRound = 1;
   const lastCompletedRound = state.completed.at(-1);
@@ -393,9 +397,17 @@ export async function runGame(
     const answerB = round.answerTasks[1].result!;
     const voteStart = Date.now();
     round.votes = voters.map((v) => ({ voter: v, startedAt: voteStart }));
+
+    // Initialize viewer voting
+    round.viewerVotesA = 0;
+    round.viewerVotesB = 0;
+    round.viewerVotingEndsAt = Date.now() + 30_000;
+    onViewerVotingStart?.();
     rerender();
 
-    await Promise.all(
+    await Promise.all([
+      // Model votes
+      Promise.all(
       round.votes.map(async (vote) => {
         if (state.generation !== roundGeneration) {
           return;
@@ -436,7 +448,10 @@ export async function runGame(
         }
         rerender();
       }),
-    );
+    ),
+      // 30-second viewer voting window
+      new Promise((r) => setTimeout(r, 30_000)),
+    ]);
     if (state.generation !== roundGeneration) {
       continue;
     }
