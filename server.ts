@@ -479,17 +479,13 @@ const server = Bun.serve<WsData>({
       const userProviderId = req.headers
         .get("x-fossabot-message-userproviderid")
         ?.trim();
-      const userLogin = req.headers
-        .get("x-fossabot-message-userlogin")
-        ?.trim()
-        .toLowerCase();
-      const voterId = userProviderId || userLogin;
-      if (!voterId) {
+      if (!userProviderId) {
+        log("WARN", "vote:fossabot", "Missing user provider ID", { ip });
         return new Response("", { status: 400 });
       }
 
       const votedFor: ViewerVoteSide = url.pathname.endsWith("/1") ? "A" : "B";
-      const applied = applyViewerVote(voterId, votedFor);
+      const applied = applyViewerVote(userProviderId, votedFor);
       if (applied) {
         scheduleViewerVoteBroadcast();
       }
